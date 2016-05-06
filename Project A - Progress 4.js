@@ -4,11 +4,9 @@
 //Project A
 //Particle System
 
-
-
 //==============================================================================
 // Vertex shader program:
-var VSHADER_SOURCE =
+var PARTICLE_VSHADER_SOURCE =
   'precision highp float;\n' +				// req'd in OpenGL ES if we use 'float'
   //
   'attribute vec4 a_Position; \n' +				// current state: particle position
@@ -34,7 +32,7 @@ var VSHADER_SOURCE =
 
 //==============================================================================
 // Fragment shader program:
-var FSHADER_SOURCE =
+var PARTICLE_FSHADER_SOURCE =
   'precision mediump float;\n' +
   'uniform  int u_runMode; \n' +
   'uniform vec4 u_eyePosWorld; \n' + 	
@@ -55,6 +53,37 @@ var FSHADER_SOURCE =
 	'    } else { discard; }\n' +
   '  }  \n;' +
   '} \n';
+
+
+//==============================================================================
+// Vertex shader program:
+var OBJECT_VSHADER_SOURCE =
+  'precision highp float;\n' +				// req'd in OpenGL ES if we use 'float'
+
+  'attribute vec4 o_Position; \n' +		//Position of the non-particle objects
+  'attribute vec3 o_Color; \n' +		//Color of the non-particle objects
+  
+  'uniform mat4 u_ViewMatrix;\n' +
+  'uniform mat4 u_ProjMatrix;\n' +
+
+  'varying   vec4 v_Color; \n' +					// (varying--send to particle
+  'void main() {\n' +
+  '	 gl_Position = u_ProjMatrix* u_ViewMatrix * o_Position;  \n' +	
+  '  v_Color = vec4(o_Color, 1.0); \n' +
+  '} \n';
+
+//==============================================================================
+// Object Fragment shader program:
+var OBJECT_FSHADER_SOURCE =
+  'precision mediump float;\n' +
+  'uniform vec4 u_eyePosWorld; \n' + 	
+  'varying vec4 v_Color; \n' +
+
+  'void main() {\n' +  
+  	'gl_FragColor = v_Color; \n' +
+  '} \n';
+
+
 
 
 // Global Variables
@@ -170,95 +199,99 @@ function main() {
   }
 	// Register the Mouse & Keyboard Event-handlers-------------------------------
 	// If users move, click or drag the mouse, or they press any keys on the 
-	// the operating system will sense them immediately as 'events'.  
-	// If you would like your program to respond to any of these events, you must 
-	// tell JavaScript exactly how to do it: you must write your own 'event 
-	// handler' functions, and then 'register' them; tell JavaScript WHICH 
-	// events should cause it to call WHICH of your event-handler functions.
-	//
-	// First, register all mouse events found within our HTML-5 canvas:
-	// when user's mouse button goes down call mouseDown() function,etc
   canvas.onmousedown	=	function(ev){myMouseDown( ev, gl, canvas) }; 
   canvas.onmousemove = 	function(ev){myMouseMove( ev, gl, canvas) };				
   canvas.onmouseup = 		function(ev){myMouseUp(   ev, gl, canvas)};
-  					// NOTE! 'onClick' event is SAME as on 'mouseup' event
-  					// in Chrome Brower on MS Windows 7, and possibly other 
-  					// operating systems; use 'mouseup' instead.
   					
   // Next, register all keyboard events found within our HTML webpage window:
 	window.addEventListener("keypress", myKeyPress, false);	
-  // The 'keyPress' events respond only to alpha-numeric keys, and sense any 
-  //  		modifiers such as shift, alt, or ctrl.  I find these most useful for
-  //			single-number and single-letter inputs that include SHIFT,CTRL,ALT.
-	// END Mouse & Keyboard Event-Handlers-----------------------------------
+
 	
   // Initialize shaders
-  if (!initShaders(gl, VSHADER_SOURCE, FSHADER_SOURCE)) {
+  var particleShaders = createProgram(gl,PARTICLE_VSHADER_SOURCE, PARTICLE_FSHADER_SOURCE);
+  var objectShaders = createProgram(gl, OBJECT_VSHADER_SOURCE, OBJECT_FSHADER_SOURCE);
+  if (!particleShaders||!objectShaders) {
     console.log('Failed to intialize shaders.');
     return;
   }
+
+  // Get storage locations of attribute and uniform variables in program object for single color drawing
+  objectShaders.o_Position = gl.getAttribLocation(objectShaders, 'o_Position');
+  objectShaders.o_Color = gl.getAttribLocation(objectShaders, 'o_Color');
+  objectShaders.u_ViewMatrix = gl.getUniformLocation(objectShaders, 'u_ViewMatrix');
+  objectShaders.u_ProjMatrix = gl.getUniformLocation(objectShaders, 'u_ProjMatrix');  
+  console.log(objectShaders.o_Position);
+  console.log(!objectShaders.o_Color);
+  if(objectShaders.o_Position < 0|| !objectShaders.o_Color) {
+  	console.log('Failed to get location for an object shader attribute');
+  	return;
+  }	
+	
+  // Get storage locations of attribute and uniform variables in program object for texture drawing
+  particleShaders.a_Position = gl.getAttribLocation(particleShaders, 'a_Position');
+  particleShaders.a_Color = gl.getAttribLocation(particleShaders, 'a_Color');
+  particleShaders.a_diam = gl.getAttribLocation(particleShaders, 'a_diam');
+  particleShaders.u_runModeID = gl.getAttribLocation(particleShaders, 'u_runMode');
+  particleShaders.u_ViewMatrix = gl.getUniformLocation(particleShaders, 'u_ViewMatrix');
+  particleShaders.u_ProjMatrix = gl.getUniformLocation(particleShaders, 'u_ProjMatrix');
+
+  if(particleShaders.a_Position < 0|| !particleShaders.a_Color||
+  	!particleShaders.a_diam||!particleShaders.u_runModeID) {
+  	console.log('Failed to get location for a particle shader attribute');
+  	return;
+  }	
+	gl.uniform1i(particleShaders.u_runModeID, myRunMode);		// (keyboard callbacks set myRunMode)
 	// initialize the particle system:
 	PartSys_init(0);			// 0 == full reset, bouncy-balls; 1==add velocity
 												// 2 == set up spring-mass system; ...
 	
   // create the Vertex Buffer Object in the graphics hardware, fill it with
   // contents of state variable
-  var myVerts = initVertexBuffers(gl);
+  var myVerts = initVertexBuffers(gl, particleShaders.a_Position, objectShaders.a_Color, objectShaders.a_diam);
   if (myVerts < 0) {
     console.log('Failed to create the Vertex Buffer Object');
     return;
   }
 
   // Create the Vertex Buffer Object for the non-particle objects
-  var objectVerts = initObjectVertexBuffers(gl);
-  if (objectVerts < 0){
-  	console.log('Failed to create the Vertex Buffer Object');
-  	return;
-  } 
+	var objectVerts = initObjectVertexBuffers(gl, objectShaders.o_Position, objectShaders.o_Color);
+	if (objectVerts < 0){
+  		console.log('Failed to create the Vertex Buffer Object');
+		return;
+	} 
 
-  gl.clearColor(0.0, 0.0, 0.0, 1);	  // RGBA color for clearing <canvas>
-  
-  // get the storage locations of u_ViewMatrix and u_ProjMatrix
-  var u_ViewMatrix = gl.getUniformLocation(gl.program, 'u_ViewMatrix');
-  var u_ProjMatrix = gl.getUniformLocation(gl.program, 'u_ProjMatrix');
-  if (!u_ViewMatrix || !u_ProjMatrix) { 
-    console.log('Failed to get the storage location of u_ViewMatrix and/or u_ProjMatrix');
-    return;
-  }
-  var viewMatrix = new Matrix4();　// The view matrix
-  var projMatrix = new Matrix4();  // The projection matrix
+	gl.clearColor(0.0, 0.0, 0.0, 1);	  // RGBA color for clearing <canvas>
+
+	var viewMatrix = new Matrix4();　// The view matrix
+	var projMatrix = new Matrix4();  // The projection matrix
 
 	viewMatrix.setLookAt(eyePosWorld[0], eyePosWorld[1], eyePosWorld[2], 
   							see_X, see_Y, see_Z, 								// look-at point (origin)
   										0, 0, 1);	
-  projMatrix.setPerspective(30, canvas.width/canvas.height, 1, 100);
+  	projMatrix.setPerspective(30, canvas.width/canvas.height, 1, 100);
 
-  // Pass the view and projection matrix to u_ViewMatrix, u_ProjMatrix
-  gl.uniformMatrix4fv(u_ViewMatrix, false, viewMatrix.elements);
-  gl.uniformMatrix4fv(u_ProjMatrix, false, projMatrix.elements);
+  	// Pass the view and projection matrix to u_ViewMatrix, u_ProjMatrix of each shaders
+  	gl.uniformMatrix4fv(objectShaders.u_ViewMatrix, false, viewMatrix.elements);
+  	gl.uniformMatrix4fv(objectShaders.u_ProjMatrix, false, projMatrix.elements);
+  	gl.uniformMatrix4fv(particleShaders.u_ViewMatrix, false, viewMatrix.elements);
+  	gl.uniformMatrix4fv(particleShaders.u_ProjMatrix, false, projMatrix.elements);
 
 
 
-  // Get graphics system storage location of all uniform vars our shaders use:
-  u_runModeID = gl.getUniformLocation(gl.program, 'u_runMode');
-  if(!u_runModeID) {
-  	console.log('Failed to get u_runMode variable location');
-  	return;
-  }																				// set the value of the uniforms:
-	gl.uniform1i(u_runModeID, myRunMode);		// (keyboard callbacks set myRunMode)
 	eyePosWorld.set([4.0, 4.0, 4.0]);
 
 
   var tick = function() {
     timeStep = animate(timeStep);  // get time passed since last screen redraw. 
-  	draw(gl, myVerts, objectVerts, timeStep, u_ViewMatrix, viewMatrix, u_ProjMatrix, projMatrix);	// compute new particle state at current time
+  	drawParticles(gl, myVerts, timeStep, particleShaders, viewMatrix, projMatrix);	// compute new particle state at current time
+    drawObjects(gl, objectVerts, objectShaders, viewMatrix, projMatrix);
     requestAnimationFrame(tick, canvas);  // Call again 'at next opportunity',
   }; 																			// within the 'canvas' HTML-5 element.
   tick();
 }
 
 
-function initObjectVertexBuffers(gl){
+function initObjectVertexBuffers(gl, o_Position, o_Color){
 	vertexObjectID = gl.createBuffer();
 	if (!vertexObjectID) {
 	    console.log('Failed to create the gfx buffer object');
@@ -290,30 +323,20 @@ function initObjectVertexBuffers(gl){
 	gl.bufferData(gl.ARRAY_BUFFER, vertices, gl.STATIC_DRAW);
 
 	//Assign the buffer objects to the attribute variables///////////
-  o_PositionID = gl.getAttribLocation(gl.program, 'o_Position');
-  if(o_PositionID < 0) {
-    console.log('Failed to get the gfx storage location of o_Position');
-    return -1;
-  }
-  gl.vertexAttribPointer(o_PositionID, 4, gl.FLOAT, false, 6 *vertices.BYTES_PER_ELEMENT, 0);
+  gl.vertexAttribPointer(o_Position, 4, gl.FLOAT, false, 6 *vertices.BYTES_PER_ELEMENT, 0);
 
   // ---------------Connect 'o_Color' attribute to bound buffer:--------------
-  o_ColorID = gl.getAttribLocation(gl.program, 'o_Color');
-  if(o_ColorID < 0) {
-    console.log('Failed to get the gfx storage location of o_Color');
-    return -1;
-  }
-  gl.vertexAttribPointer(o_ColorID,	3, gl.FLOAT, false,	6 * vertices.BYTES_PER_ELEMENT, 4 * vertices.BYTES_PER_ELEMENT);
+  gl.vertexAttribPointer(o_Color,	3, gl.FLOAT, false,	6 * vertices.BYTES_PER_ELEMENT, 4 * vertices.BYTES_PER_ELEMENT);
 
   //Enable the attribute assignments
-   gl.enableVertexAttribArray(o_PositionID);
-   gl.enableVertexAttribArray(o_ColorID);
+   gl.enableVertexAttribArray(o_Position);
+   gl.enableVertexAttribArray(o_Color);
 
   return vertexLength/6;
 }
 
 
-function initVertexBuffers(gl) {
+function initVertexBuffers(gl, a_Position, a_Color, a_diam) {
 //==============================================================================
 // Set up all buffer objects on our graphics hardware.
 //
@@ -331,50 +354,23 @@ function initVertexBuffers(gl) {
 	// ---------------Connect 'a_Position' attribute to bound buffer:-------------
   // Get the ID# for the a_Position variable in the graphics hardware
   // (keep it as global var--we'll need it for PartSys_render())
-  a_PositionID = gl.getAttribLocation(gl.program, 'a_Position');
-  if(a_PositionID < 0) {
-    console.log('Failed to get the gfx storage location of a_Position');
-    return -1;
-  }
-  // Tell GLSL to fill 'a_Position' attribute variable for each shader 
-  // with values in the buffer object chosen by 'gl.bindBuffer()' command.
-  gl.vertexAttribPointer(
-		a_PositionID,	//index == attribute var. name used in the shader pgm.
-		4,						// size == how many dimensions for this attribute: 1,2,3 or 4?
-		gl.FLOAT,			// type == what data type did we use for those numbers?
-		false,				// isNormalized == are these fixed-point values that we need
-							//	normalize before use? true or false
-		PART_MAXVAR *FSIZE,// stride == #bytes (of other, interleaved data) between 
-							// separating OUR values.
-		PART_XPOS*FSIZE);	// Offset -- how many bytes from START of buffer to the
-  								// value we will actually use?  We start with position.
+ 
+  gl.vertexAttribPointer(a_Position, 4, gl.FLOAT, false, PART_MAXVAR *FSIZE, PART_XPOS*FSIZE);
   // Enable this assignment of the a_Position variable to the bound buffer:
-  gl.enableVertexAttribArray(a_PositionID);
+  gl.enableVertexAttribArray(a_Position);
+
   // ---------------Connect 'a_Color' attribute to bound buffer:--------------
-  // Get the ID# for the vec3 a_Color variable in the graphics hardware
-  // (keep it as global var--we'll need it for PartSys_render())
-  a_ColorID = gl.getAttribLocation(gl.program, 'a_Color');
-  if(a_ColorID < 0) {
-    console.log('Failed to get the gfx storage location of a_Color');
-    return -1;
-  }
   // Tell GLSL to fill 'a_Color' attribute variable for each shader 
   // with values in the buffer object chosen by 'gl.bindBuffer()' command.
-  gl.vertexAttribPointer(a_ColorID,	3, gl.FLOAT, false,	PART_MAXVAR * FSIZE, PART_R * FSIZE);
-  gl.enableVertexAttribArray(a_ColorID);
+  gl.vertexAttribPointer(a_Color,	3, gl.FLOAT, false,	PART_MAXVAR * FSIZE, PART_R * FSIZE);
+  gl.enableVertexAttribArray(a_Color);
+
   // ---------------Connect 'a_diam' attribute to bound buffer:---------------
-  // Get the ID# for the scalar a_diam variable in the graphics hardware
-  // (keep it as global var--we'll need it for PartSys_render())
-  a_diamID = gl.getAttribLocation(gl.program, 'a_diam');
-  if(a_diamID < 0) {
-    console.log('Failed to get the storage location of scalar a_diam');
-    return -1;
-  }
   // Tell GLSL to fill 'a_Position' attribute variable for each shader 
   // with values in the buffer object chosen by 'gl.bindBuffer()' command.
-  gl.vertexAttribPointer(a_diamID,	1, gl.FLOAT, false,	PART_MAXVAR*FSIZE, PART_DIAM*FSIZE); 
+  gl.vertexAttribPointer(a_diam,	1, gl.FLOAT, false,	PART_MAXVAR*FSIZE, PART_DIAM*FSIZE); 
   // Enable this assignment of the a_Position variable to the bound buffer:
-  gl.enableVertexAttribArray(a_diamID);
+  gl.enableVertexAttribArray(a_diam);
 
 	// --------------DONE with connecting attributes to bound buffer:-----------
   return partCount;
@@ -392,15 +388,17 @@ function animate(timeStep) {
   return elapsed;					// Return the amount of time passed.
 }
 
-function draw(gl, myVerts, objectVerts, timeStep, u_ViewMatrix, viewMatrix, u_ProjMatrix, projMatrix) {
+function drawParticles(gl, myVerts, timeStep, particleShaders, projMatrix) {
 //============================================================================== 
   gl.clear(gl.COLOR_BUFFER_BIT);  					// Clear <canvas>
+  gl.useProgram(particleShaders); //Tell this program object is used
+  
   if(myRunMode>1) {									// 0=reset; 1= pause; 2=step; 3=run default state
 		if(myRunMode==2) myRunMode=1;				// (if 2, do just one step and pause.)
 		timeStep = timeStep/20;
 		applyForces(s0);
 		dotFinder(s0, sDot);
-		PartSys_render(gl, s0);  				// Draw the particle-system on-screen:	
+		//PartSys_render(gl, s0);  				// Draw the particle-system on-screen:	
 		solver(s0,sDot,s1, timeStep);
 		doConstraints(s1);
 		for(var i=0; i<partCount; i++) {			// for every particle in s0 state:
@@ -414,9 +412,9 @@ function draw(gl, myVerts, objectVerts, timeStep, u_ViewMatrix, viewMatrix, u_Pr
 			s0[PART_ZVEL+ pOff] = s1[PART_ZVEL+ pOff];
 		}
 	}
-	// gl.drawArrays(gl.LINES, partCount, gndVerts.length/15);	
-	// gl.drawArrays(gl.LINES, partCount + gndVerts.length/15, boxVerts.length/15);	
-	// gl.drawArrays(gl.LINES, partCount + gndVerts.length/15 + boxVerts.length/15, sphVerts.length/15);	
+	gl.drawArrays(gl.LINES, 0, gndVerts.length/6);	
+	gl.drawArrays(gl.LINES, gndVerts.length/6, boxVerts.length/6);	
+	//gl.drawArrays(gl.LINES, gndVerts.length/6 + boxVerts.length/6, sphVerts.length/6);	
   	// Set the matrix to be used for to set the camera view
 	viewMatrix.setLookAt(eyePosWorld[0], eyePosWorld[1], eyePosWorld[2], 
   							see_X, see_Y, see_Z, 								// look-at point (origin)
