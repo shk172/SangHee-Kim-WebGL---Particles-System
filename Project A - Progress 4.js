@@ -83,8 +83,165 @@ var OBJECT_FSHADER_SOURCE =
   	'gl_FragColor = v_Color; \n' +
   '} \n';
 
+var particle = function (x,y,z){
+	//Position of the particle
+	this.xPos = x;
+	this.yPos = y;
+	this.zPos = z;
+
+	//Velocity of the particle
+	this.xVel = 0;
+	this.yVel = 0;
+	this.zVel = 0;
+
+	//Total force of the particle in xyz directions
+	this.xFTot = 0;
+	this.yFTot = 0;
+	this.zFTot = 0;
+
+	//RGB value of the particle
+	this.red = 0; 
+	this.green = 0;
+	this.blue = 0;
+
+	this.mass = 0;
+	this.diam = 0;
+	this.rendMode = 0;
+	this.maxAttr = 15;
+}
 
 
+var particleSystem = function (partCount,s0, sDot, s1, cForcer, cLimit){
+	this.partCount = partCount;
+	this.s0 = s0;
+	this.sDot = sDot;
+	this.s1 = s1;
+	this.cForcer = cForcer;
+	this.cLimit = cLimit;
+}
+
+particleSystem.prototype.initialize = function(sel){
+//==============================================================================
+// set initial values of all particle-system state.
+// sel==0 for 3 bouncy-ball particles, == 1 to add velocity to all particles.
+var doit=1;
+	switch(sel) {
+    case 0:
+			for(var i=0; i<this.partCount; i++) {
+				tempParticle = new particle;
+				var xcyc = roundRand3D();
+				tempParticle.xPos = 0.2 + 0.2*xcyc[0];		// 0.0 <= randomRound() < 1.0
+				tempParticle.yPos = 0.2 + 0.2*xcyc[1];
+				tempParticle.zPos = 0.2 + 0.2*xcyc[2];
+				xcyc = roundRand3D();				//Create new random three numbers to be added to the velocity
+				tempParticle.xVel = INIT_VEL*(0.4 + 0.2*xcyc[0]);
+				tempParticle.yVel = INIT_VEL*(0.4 + 0.2*xcyc[1]);
+				tempParticle.zVel = INIT_VEL*(0.4 + 0.2*xcyc[2]);
+				tempParticle.xFTot = 0.0;
+				tempParticle.yFTot = 0.0;
+				tempParticle.zFTot = 0.0;
+				tempParticle.red = 0.2 + 0.8*Math.random();
+				tempParticle.green = 0.2 + 0.8*Math.random();
+				tempParticle.blue = 0.2 + 0.8*Math.random();
+				tempParticle.mass = 2.0 + 0.2*Math.random();
+				tempParticle.diam = 1.0 + 10.0*Math.random();
+				tempParticle.rendMode = Math.floor(4.0*Math.random()); // 0,1,2 or 3.
+				this.s0.push(tempParticle);
+			}
+			this.s1 = this.s0;
+			this.sDot = this.s0;
+       break;
+    case 1:					// increase current velocity by INIT_VEL
+    default:
+			
+    	break;
+    case 2:
+    	break;
+   }
+}
+
+particleSystem.prototype.applyForces = function(){
+	for(i = 0; i < this.partCount; i++){
+		var xForce = 0.0;
+		var yForce = 0.0;
+		var zForce = 0.0;
+		if(gravity == true){
+			zForce = this.s0[i].mass * -0.01
+		}
+		// if(spring == true && i > 0){
+		// 	s[PART_XPOS + ]
+		// }
+		this.s0[i].zFTot = zForce;
+	}
+}
+particleSystem.prototype.dotFinder = function(){
+	for(i = 0; i < this.partCount; i++){
+		var tempParticle = new particle;	
+		this.sDot[i].xPos = this.s0[i].xVel;							//Velocity on X
+		this.sDot[i].yPos = this.s0[i].yVel;							//Velocity on Y
+		this.sDot[i].zPos = this.s0[i].zVel; 							//Velocity on Z
+		this.sDot[i].xVel = this.s0[i].xFTot / this.s0[i].mass;	//Acceleration on X
+		this.sDot[i].yVel = this.s0[i].yFTot / this.s0[i].mass;	//Acceleration on Y
+		this.sDot[i].zVel = this.s0[i].zFTot / this.s0[i].mass;	//Acceleration on Z
+	}
+	console.log("hi");
+}
+
+particleSystem.prototype.render = function(gl){
+	gl.drawArrays(gl.POINTS, 0, this.partCount);
+}
+
+particleSystem.prototype.solver = function(timeStep){
+	for(i = 0; i < this.partCount; i++){
+		var pOff = i * PART_MAXVAR;				// offset to start of i-th particle
+		this.s1[i].xVel = (this.s0[i].xVel + (timeStep* this.sDot[i].xVel)) * 0.985;
+		this.s1[i].yVel = (this.s0[i].yVel + (timeStep* this.sDot[i].yVel)) * 0.985;
+		this.s1[i].zVel = (this.s0[i].zVel + (timeStep* this.sDot[i].zVel)) * 0.985;
+
+		//New Position = currentPos + h*(currentVel + 0.5*h*acc)
+		this.s1[i].xPos = this.s0[i].xPos + timeStep* (this.s0[i].xVel + (0.5* timeStep* this.sDot[i].xVel));
+		this.s1[i].yPos = this.s0[i].yPos + timeStep* (this.s0[i].yVel + (0.5* timeStep* this.sDot[i].yVel)); 
+		this.s1[i].zPos = this.s0[i].zPos + timeStep* (this.s0[i].zVel + (0.5* timeStep* this.sDot[i].zVel));
+	}
+}
+
+particleSystem.prototype.doConstraints = function(s1){
+	for(i = 0; i < this.partCount; i++){
+		var pOff = i * PART_MAXVAR;				// offset to start of i-th particle
+		//===================================================================
+		// APPLY CONSTRAINTS to the 'next' state of our particle system:
+		//===================================================================		
+		if(this.s1[i].xPos < 0.0 && this.s1[i].xVel < 0.0) {			
+			 this.s1[i].xVel = -this.s1[i].xVel;
+		}
+		else if (this.s1[i].xPos > 1.8 && this.s1[i].xVel > 0.0) {		
+			this.s1[i].xVel = -this.s1[i].xVel;
+		}
+
+		if(this.s1[i].yPos < 0.0 && this.s1[i].yVel < 0.0) {		
+			this.s1[i].yVel = -this.s1[i].yVel;
+		}
+		else if( this.s1[i].yPos > 1.8 && this.s1[i].yVel > 0.0) {		
+			this.s1[i].yVel = -this.s1[i].yVel;
+		}
+
+		if(this.s1[i].zPos < 0.0 && this.s1[i].zVel < 0.0) {			//if the particle is underneath the floor
+			this.s1[i].zVel = -this.s0[i].zVel;						//Reverse the current velocity, assuming 
+		}																		//that s1's velocity is always below the ground
+		else if( this.s1[i].zPos > 1.8 && this.s1[i].zVel > 0.0) {		//if the particle is above the ceiling
+			this.s1[i].zVel = -this.s1[i].zVel;							//reverse the velocity
+		}			
+
+		//  -- hard limit on 'floor' keeps y position >= 0;
+		if(this.s1[i].xPos <  -0.0) this.s1[i].xPos = 0.0;			
+		if(this.s1[i].xPos >=  1.8) this.s1[i].xPos = 1.8;
+		if(this.s1[i].yPos <  -0.0) this.s1[i].yPos = 0.0;
+		if(this.s1[i].yPos >=  1.8) this.s1[i].yPos = 1.8;
+		if(this.s1[i].zPos <  -0.0) this.s1[i].zPos = 0.0;			
+		if(this.s1[i].zPos >=  1.8) this.s1[i].zPos = 1.8;
+		//============================================
+	}
+}
 
 // Global Variables
 // =========================
@@ -93,7 +250,7 @@ var g_last = Date.now();				// Timestamp: set after each frame of animation,
 																// used by 'animate()' function to find how much
 																// time passed since we last updated our canvas.
 var	eyePosWorld = new Float32Array(3);	// x,y,z in world coords
-
+eyePosWorld.set([4.0, 4.0, 4.0]);
 
 //PARTICLE VARIABLES////////////////////////////////////////////////////////////////
 // Give meaningful names to array indices for the particle(s) in state vectors.
@@ -125,20 +282,11 @@ const PART_G_FTOT   =23;  // force-accumulator for color-change: grn
 const PART_B_FTOT   =24;  // force-accumulator for color-change: blu
 */
 const PART_MAXVAR   =15;  // Size of array in CPart uses to store its values.
-var partCount = 500;				// # of particles in our state variable s[0] that
-//TRY 321,123 particles...)		// we will actually display on-screen.				
+
 var myRunMode = 0;			// Particle System: 0=reset; 1= pause; 2=step; 3=run
 var INIT_VEL = 0.20;		// avg particle speed: ++Start,--Start buttons adjust.
 // Create & initialize our first, simplest 'state variable' s0:
 // Note that I've made 3 particles here, but at first I'll just use one of them.
-
-
-//Particle states////////////////////////////////////////////////////////////////
-var s0 = new Float32Array(partCount * PART_MAXVAR);
-var s1 = new Float32Array(partCount * PART_MAXVAR);
-var sDot = new Float32Array(partCount * PART_MAXVAR);
-var FSIZE = s0.BYTES_PER_ELEMENT;
-
 
 //FORCERS////////////////////////////////////////////////////////////////////////
 const F_NONE		= 0;  // No force applied   
@@ -220,8 +368,6 @@ function main() {
   objectShaders.o_Color = gl.getAttribLocation(objectShaders, 'o_Color');
   objectShaders.u_ViewMatrix = gl.getUniformLocation(objectShaders, 'u_ViewMatrix');
   objectShaders.u_ProjMatrix = gl.getUniformLocation(objectShaders, 'u_ProjMatrix');  
-  console.log(objectShaders.o_Position);
-  console.log(!objectShaders.o_Color);
   if(objectShaders.o_Position < 0|| !objectShaders.o_Color) {
   	console.log('Failed to get location for an object shader attribute');
   	return;
@@ -240,15 +386,24 @@ function main() {
   	console.log('Failed to get location for a particle shader attribute');
   	return;
   }	
-	gl.uniform1i(particleShaders.u_runModeID, myRunMode);		// (keyboard callbacks set myRunMode)
+	//gl.uniform1i(particleShaders.u_runModeID, myRunMode);		// (keyboard callbacks set myRunMode)
+
+
 	// initialize the particle system:
-	PartSys_init(0);			// 0 == full reset, bouncy-balls; 1==add velocity
+	var partCount = 500;			
+	var s0 = [];
+	var sDot = [];
+	var s1 = [];
+	var cForcer = [];
+	var cLimit = [];
+	var partSys = new particleSystem(partCount,s0, sDot, s1, cForcer, cLimit)
+	partSys.initialize(0);			// 0 == full reset, bouncy-balls; 1==add velocity
 												// 2 == set up spring-mass system; ...
-	
+	console.log(partSys);
   // create the Vertex Buffer Object in the graphics hardware, fill it with
   // contents of state variable
-  var myVerts = initVertexBuffers(gl, particleShaders.a_Position, objectShaders.a_Color, objectShaders.a_diam);
-  if (myVerts < 0) {
+  var particleBuffers = initVertexBuffers(gl, particleShaders.a_Position, particleShaders.a_Color, particleShaders.a_diam, partSys);
+  if (!particleBuffers) {
     console.log('Failed to create the Vertex Buffer Object');
     return;
   }
@@ -276,20 +431,49 @@ function main() {
   	gl.uniformMatrix4fv(particleShaders.u_ViewMatrix, false, viewMatrix.elements);
   	gl.uniformMatrix4fv(particleShaders.u_ProjMatrix, false, projMatrix.elements);
 
-
-
-	eyePosWorld.set([4.0, 4.0, 4.0]);
-
-
   var tick = function() {
     timeStep = animate(timeStep);  // get time passed since last screen redraw. 
-  	drawParticles(gl, myVerts, timeStep, particleShaders, viewMatrix, projMatrix);	// compute new particle state at current time
-    drawObjects(gl, objectVerts, objectShaders, viewMatrix, projMatrix);
+  	drawParticles(gl, particleBuffers, timeStep, particleShaders, viewMatrix, projMatrix, partSys);	// compute new particle state at current time
+    //drawObjects(gl, objectVerts, objectShaders, viewMatrix, projMatrix);
     requestAnimationFrame(tick, canvas);  // Call again 'at next opportunity',
   }; 																			// within the 'canvas' HTML-5 element.
   tick();
 }
 
+function initVertexBuffers(gl, a_Position, a_Color, a_diam, partSys) {
+//==============================================================================
+// Set up all buffer objects on our graphics hardware.
+//
+// Create a buffer object in the graphics hardware: get its ID# 
+	vertexBufferID = gl.createBuffer();				//(make it global: PartSys_render()
+  													// modifies this buffers' contents)
+	if (!vertexBufferID) {
+	    console.log('Failed to create the gfx buffer object');
+		return -1;
+	}
+	var xyzPos = new Float32Array(partSys.partCount * 3);
+	var color = new Float32Array(partSys.partCount * 3);
+	var diam = new Float32Array(partSys.partCount);
+	for (i=0;i<partSys.partCount;i++){
+		var offset = i * 3;
+		
+		xyzPos[offset] = partSys.s0[i].xPos;
+		xyzPos[offset + 1] = partSys.s0[i].yPos;
+		xyzPos[offset + 2] = partSys.s0[i].zPos;
+		color[offset] = partSys.s0[i].red;
+		color[offset + 1] = partSys.s0[i].green;
+		color[offset + 2] = partSys.s0[i].blue;
+		diam[i] = partSys.s0[i].diam;
+	}
+
+	//******* NEEDS TO PASS OFFSET FOR SUBSEQUENT ATTRIBUTES AFTER POSITION
+	var particleBuffers = new Object();
+	particleBuffers.positionBuffer = initArrayBufferForLaterUse(gl, xyzPos, 4, gl.FLOAT);
+	particleBuffers.colorBuffer = initArrayBufferForLaterUse(gl, color, 3, gl.FLOAT);
+	particleBuffers.diamBuffer = initArrayBufferForLaterUse(gl, diam, 1, gl.FLOAT);
+
+  return particleBuffers;
+}
 
 function initObjectVertexBuffers(gl, o_Position, o_Color){
 	vertexObjectID = gl.createBuffer();
@@ -336,45 +520,7 @@ function initObjectVertexBuffers(gl, o_Position, o_Color){
 }
 
 
-function initVertexBuffers(gl, a_Position, a_Color, a_diam) {
-//==============================================================================
-// Set up all buffer objects on our graphics hardware.
-//
-// Create a buffer object in the graphics hardware: get its ID# 
-	vertexBufferID = gl.createBuffer();				//(make it global: PartSys_render()
-  													// modifies this buffers' contents)
-	if (!vertexBufferID) {
-	    console.log('Failed to create the gfx buffer object');
-		return -1;
-	}
 
-	gl.bindBuffer(gl.ARRAY_BUFFER, vertexBufferID);
-	gl.bufferData(gl.ARRAY_BUFFER, s0, gl.DYNAMIC_DRAW);
-  							
-	// ---------------Connect 'a_Position' attribute to bound buffer:-------------
-  // Get the ID# for the a_Position variable in the graphics hardware
-  // (keep it as global var--we'll need it for PartSys_render())
- 
-  gl.vertexAttribPointer(a_Position, 4, gl.FLOAT, false, PART_MAXVAR *FSIZE, PART_XPOS*FSIZE);
-  // Enable this assignment of the a_Position variable to the bound buffer:
-  gl.enableVertexAttribArray(a_Position);
-
-  // ---------------Connect 'a_Color' attribute to bound buffer:--------------
-  // Tell GLSL to fill 'a_Color' attribute variable for each shader 
-  // with values in the buffer object chosen by 'gl.bindBuffer()' command.
-  gl.vertexAttribPointer(a_Color,	3, gl.FLOAT, false,	PART_MAXVAR * FSIZE, PART_R * FSIZE);
-  gl.enableVertexAttribArray(a_Color);
-
-  // ---------------Connect 'a_diam' attribute to bound buffer:---------------
-  // Tell GLSL to fill 'a_Position' attribute variable for each shader 
-  // with values in the buffer object chosen by 'gl.bindBuffer()' command.
-  gl.vertexAttribPointer(a_diam,	1, gl.FLOAT, false,	PART_MAXVAR*FSIZE, PART_DIAM*FSIZE); 
-  // Enable this assignment of the a_Position variable to the bound buffer:
-  gl.enableVertexAttribArray(a_diam);
-
-	// --------------DONE with connecting attributes to bound buffer:-----------
-  return partCount;
-}
 
 
 
@@ -388,209 +534,51 @@ function animate(timeStep) {
   return elapsed;					// Return the amount of time passed.
 }
 
-function drawParticles(gl, myVerts, timeStep, particleShaders, projMatrix) {
+function drawParticles(gl, particleBuffers, timeStep, particleShaders, viewMatrix, projMatrix, partSys) {
 //============================================================================== 
-  gl.clear(gl.COLOR_BUFFER_BIT);  					// Clear <canvas>
-  gl.useProgram(particleShaders); //Tell this program object is used
-  
-  if(myRunMode>1) {									// 0=reset; 1= pause; 2=step; 3=run default state
-		if(myRunMode==2) myRunMode=1;				// (if 2, do just one step and pause.)
+	gl.clear(gl.COLOR_BUFFER_BIT);  					// Clear <canvas>
+	gl.useProgram(particleShaders); //Tell this program object is used
+	initAttributeVariable(gl,particleShaders.a_Position, particleBuffers.positionBuffer);
+	initAttributeVariable(gl,particleShaders.a_Color, particleBuffers.colorBuffer);
+	initAttributeVariable(gl,particleShaders.a_diam, particleBuffers.diamBuffer);
+	//if(myRunMode>1) {									// 0=reset; 1= pause; 2=step; 3=run default state
+	//	if(myRunMode==2) myRunMode=1;				// (if 2, do just one step and pause.)
 		timeStep = timeStep/20;
-		applyForces(s0);
-		dotFinder(s0, sDot);
-		//PartSys_render(gl, s0);  				// Draw the particle-system on-screen:	
-		solver(s0,sDot,s1, timeStep);
-		doConstraints(s1);
-		for(var i=0; i<partCount; i++) {			// for every particle in s0 state:
-			var pOff = i * PART_MAXVAR;				// offset to start of i-th particle
+		partSys.applyForces();
+		partSys.dotFinder();
+		partSys.render(gl);  				// Draw the particle-system on-screen:	
+		partSys.solver(timeStep);
+		partSys.doConstraints();
+		for(var i=0; i<partSys.partCount; i++) {			// for every particle in s0 state:
 			//Swap States/////////////////////////////////////////////////////
-			s0[PART_XPOS+ pOff] = s1[PART_XPOS+ pOff];
-			s0[PART_YPOS+ pOff] = s1[PART_YPOS+ pOff];
-			s0[PART_ZPOS+ pOff] = s1[PART_ZPOS+ pOff];
-			s0[PART_XVEL+ pOff] = s1[PART_XVEL+ pOff];
-			s0[PART_YVEL+ pOff] = s1[PART_YVEL+ pOff];
-			s0[PART_ZVEL+ pOff] = s1[PART_ZVEL+ pOff];
+			partSys.s0[i].xPos = partSys.s1[i].xPos;
+			partSys.s0[i].yPos = partSys.s1[i].yPos;
+			partSys.s0[i].zPos = partSys.s1[i].zPos;
+			partSys.s0[i].xVel = partSys.s1[i].xVel;
+			partSys.s0[i].yVel = partSys.s1[i].yVel;
+			partSys.s0[i].zVel = partSys.s1[i].zVel;
 		}
-	}
-	gl.drawArrays(gl.LINES, 0, gndVerts.length/6);	
-	gl.drawArrays(gl.LINES, gndVerts.length/6, boxVerts.length/6);	
-	//gl.drawArrays(gl.LINES, gndVerts.length/6 + boxVerts.length/6, sphVerts.length/6);	
+	//}
   	// Set the matrix to be used for to set the camera view
 	viewMatrix.setLookAt(eyePosWorld[0], eyePosWorld[1], eyePosWorld[2], 
   							see_X, see_Y, see_Z, 								// look-at point (origin)
   								0, 0, 1);								// up vector (+z)
   // Pass the view projection matrix
-	gl.uniformMatrix4fv(u_ProjMatrix, false, projMatrix.elements);
-	gl.uniformMatrix4fv(u_ViewMatrix, false, viewMatrix.elements);
-	gl.uniform1i(u_runModeID, myRunMode);	//run/step/pause changes particle shape
+	gl.uniformMatrix4fv(particleShaders.u_ProjMatrix, false, projMatrix.elements);
+	gl.uniformMatrix4fv(particleShaders.u_ViewMatrix, false, viewMatrix.elements);
+	//gl.uniform1i(particleShaders.u_runModeID, myRunMode);	//run/step/pause changes particle shape
 
   // Report mouse-drag totals.
 	document.getElementById('MouseResult0').innerHTML=
 			'Mouse Drag totals (CVV coords):\t'+xMdragTot+', \t'+yMdragTot;	
 }
 
-function doConstraints(s1){
-	for(i = 0; i < partCount; i++){
-		var pOff = i * PART_MAXVAR;				// offset to start of i-th particle
-		//===================================================================
-		// APPLY CONSTRAINTS to the 'next' state of our particle system:
-		//===================================================================		
-		if(s1[PART_XPOS+ pOff] < 0.0 && s1[PART_XVEL+ pOff] < 0.0) {			
-			 s1[PART_XVEL+ pOff] = -s1[PART_XVEL+ pOff];
-		}
-		else if (s1[PART_XPOS+ pOff] > 1.8 && s1[PART_XVEL+ pOff] > 0.0) {		
-			s1[PART_XVEL+ pOff] = -s1[PART_XVEL+ pOff];
-		}
 
-		if(s1[PART_YPOS+ pOff] < 0.0 && s1[PART_YVEL+ pOff] < 0.0) {		
-			 s1[PART_YVEL+ pOff] = -s1[PART_YVEL+ pOff];
-		}
-		else if( s1[PART_YPOS+ pOff] > 1.8 && s1[PART_YVEL+ pOff] > 0.0) {		
-			s1[PART_YVEL+ pOff] = -s1[PART_YVEL+ pOff];
-		}
-
-		if(s1[PART_ZPOS+ pOff] < 0.0 && s1[PART_ZVEL+ pOff] < 0.0) {			//if the particle is underneath the floor
-			 s1[PART_ZVEL+ pOff] = -s0[PART_ZVEL+ pOff];						//Reverse the current velocity, assuming 
-		}																		//that s1's velocity is always below the ground
-		else if( s1[PART_ZPOS+ pOff] > 1.8 && s1[PART_ZVEL+ pOff] > 0.0) {		//if the particle is above the ceiling
-			s1[PART_ZVEL+ pOff] = -s1[PART_ZVEL+ pOff];							//reverse the velocity
-		}			
-
-		//  -- hard limit on 'floor' keeps y position >= 0;
-		if(s1[PART_XPOS+ pOff] <  -0.0) s1[PART_XPOS+ pOff] = 0.0;			
-		if(s1[PART_XPOS+ pOff] >=  1.8) s1[PART_XPOS+ pOff] = 1.8;
-		if(s1[PART_YPOS+ pOff] <  -0.0) s1[PART_YPOS+ pOff] = 0.0;
-		if(s1[PART_YPOS+ pOff] >=  1.8) s1[PART_YPOS+ pOff] = 1.8;
-		if(s1[PART_ZPOS+ pOff] <  -0.0) s1[PART_ZPOS+ pOff] = 0.0;			
-		if(s1[PART_ZPOS+ pOff] >=  1.8) s1[PART_ZPOS+ pOff] = 1.8;
-		//============================================
-	}
+function initAttributeVariable(gl, a_attribute, buffer) {
+  gl.bindBuffer(gl.ARRAY_BUFFER, buffer);
+  gl.vertexAttribPointer(a_attribute, buffer.num, buffer.type, false, 0, 0);
+  gl.enableVertexAttribArray(a_attribute);
 }
-
-function solver(s0, sDot, s1, timeStep){
-	for(i = 0; i < partCount; i++){
-		var pOff = i * PART_MAXVAR;				// offset to start of i-th particle
-		s1[PART_XVEL+ pOff] = (s0[PART_XVEL+ pOff] + (timeStep* sDot[PART_XVEL+ pOff])) * 0.985;
-		s1[PART_YVEL+ pOff] = (s0[PART_YVEL+ pOff] + (timeStep* sDot[PART_YVEL+ pOff])) * 0.985;
-		s1[PART_ZVEL+ pOff] = (s0[PART_ZVEL+ pOff] + (timeStep* sDot[PART_ZVEL+ pOff])) * 0.985;
-
-		//New Position = currentPos + h*(currentVel + 0.5*h*acc)
-		s1[PART_XPOS+ pOff] = s0[PART_XPOS+ pOff] + timeStep* (s0[PART_XVEL+ pOff] + (0.5* timeStep* sDot[PART_XVEL+ pOff]));
-		s1[PART_YPOS+ pOff] = s0[PART_YPOS+ pOff] + timeStep* (s0[PART_YVEL+ pOff] + (0.5* timeStep* sDot[PART_YVEL+ pOff])); 
-		s1[PART_ZPOS+ pOff] = s0[PART_ZPOS+ pOff] + timeStep* (s0[PART_ZVEL+ pOff] + (0.5* timeStep* sDot[PART_ZVEL+ pOff]));
-	}
-}
-
-function dotFinder(s, sDot){
-	for(i = 0; i < partCount; i++){
-		var pOff = i * PART_MAXVAR;				// offset to start of i-th particle
-		sDot[PART_XPOS+ pOff] = s[PART_XVEL + pOff];							//Velocity on X
-		sDot[PART_YPOS+ pOff] = s[PART_YVEL + pOff]; 							//Velocity on Y
-		sDot[PART_ZPOS+ pOff] = s[PART_ZVEL + pOff]; 							//Velocity on Z
-		sDot[PART_XVEL+ pOff] = s[PART_X_FTOT + pOff] / s0[PART_MASS + pOff];	//Acceleration on X
-		sDot[PART_YVEL+ pOff] = s[PART_Y_FTOT + pOff] / s0[PART_MASS + pOff];	//Acceleration on Y
-		sDot[PART_ZVEL+ pOff] = s[PART_Z_FTOT + pOff] / s0[PART_MASS + pOff];	//Acceleration on Z
-	}
-}
-function applyForces(s){
-	for(i = 0; i < partCount; i++){
-		var pOff = i * PART_MAXVAR;
-		var xForce = 0.0;
-		var yForce = 0.0;
-		var zForce = 0.0;
-		if(gravity == true){
-			zForce = s[PART_MASS] * -0.01
-		}
-		// if(spring == true && i > 0){
-		// 	s[PART_XPOS + ]
-		// }
-		s[PART_Z_FTOT+pOff] = zForce;
-	}
-}
-
-function PartSys_render(gl, s) {
-	gl.bufferSubData(gl.ARRAY_BUFFER, 0, s);
-	gl.drawArrays(gl.POINTS, 0, partCount);
-}
-
-function PartSys_init(sel) {
-//==============================================================================
-// set initial values of all particle-system state.
-// sel==0 for 3 bouncy-ball particles, == 1 to add velocity to all particles.
-
-var doit=1;
-	switch(sel) {
-    case 0:
-			for(var i=0; i<partCount; i++) {
-				var pOff = i*PART_MAXVAR;			// starting index of each particle
-				var xcyc = roundRand3D();
-				s0[pOff + PART_XPOS] = 0.2 + 0.2*xcyc[0];		// 0.0 <= randomRound() < 1.0
-				s0[pOff + PART_YPOS] = 0.2 + 0.2*xcyc[1];
-				s0[pOff + PART_ZPOS] = 0.2 + 0.2*xcyc[2];
-				xcyc = roundRand3D();				//Create new random three numbers to be added to the velocity
-				s0[pOff + PART_XVEL] = INIT_VEL*(0.4 + 0.2*xcyc[0]);
-				s0[pOff + PART_YVEL] = INIT_VEL*(0.4 + 0.2*xcyc[1]);
-				s0[pOff + PART_ZVEL] = INIT_VEL*(0.4 + 0.2*xcyc[2]);
-				s0[pOff + PART_X_FTOT] = 0.0;
-				s0[pOff + PART_Y_FTOT] = 0.0;
-				s0[pOff + PART_Z_FTOT] = 0.0;
-				s0[pOff + PART_R] = 0.2 + 0.8*Math.random();
-				s0[pOff + PART_G] = 0.2 + 0.8*Math.random();
-				s0[pOff + PART_B] = 0.2 + 0.8*Math.random();
-				s0[pOff + PART_MASS] = 2.0 + 0.2*Math.random();
-				s0[pOff + PART_DIAM] = 1.0 + 10.0*Math.random();
-				s0[pOff + PART_RENDMODE] = Math.floor(4.0*Math.random()); // 0,1,2 or 3.
-			}
-
-       break;
-    case 1:					// increase current velocity by INIT_VEL
-    default:
-			
-    	break;
-    case 2:
-    	for(var i=0; i<partCount; i++) {
-				var pOff = i*PART_MAXVAR;			// starting index of each particle
-				var xcyc = roundRand3D();
-				s0[pOff + PART_XPOS] = 0.2 + 0.2*xcyc[0];		// 0.0 <= randomRound() < 1.0
-				s0[pOff + PART_YPOS] = 0.2 + 0.2*xcyc[1];
-				s0[pOff + PART_ZPOS] = 0.2 + 0.2*xcyc[2];
-				xcyc = roundRand3D();				//Create new random three numbers to be added to the velocity
-				s0[pOff + PART_XVEL] = INIT_VEL*(0.4 + 0.2*xcyc[0]);
-				s0[pOff + PART_YVEL] = INIT_VEL*(0.4 + 0.2*xcyc[1]);
-				s0[pOff + PART_ZVEL] = INIT_VEL*(0.4 + 0.2*xcyc[2]);
-				s0[pOff + PART_X_FTOT] = 0.0;
-				s0[pOff + PART_Y_FTOT] = 0.0;
-				s0[pOff + PART_Z_FTOT] = 0.0;
-				s0[pOff + PART_R] = 0.2 + 0.8*Math.random();
-				s0[pOff + PART_G] = 0.2 + 0.8*Math.random();
-				s0[pOff + PART_B] = 0.2 + 0.8*Math.random();
-				s0[pOff + PART_MASS] = 0.9 + 0.2*Math.random();
-				s0[pOff + PART_DIAM] = 1.0 + 10.0*Math.random();
-				s0[pOff + PART_RENDMODE] = Math.floor(4.0*Math.random()); // 0,1,2 or 3.
-			}
-    	break;
-   }
-}
-
-function roundRand3D() {
-//==============================================================================
-// On each call, find a different 3D point (xball, yball, zball) chosen 
-// 'randomly' and 'uniformly' inside a sphere of radius 1.0 centered at origin.  
-// More formally: 
-//  	--xball*xball + yball*yball + zball*zball < 1.0, and 
-//		--uniform probability density function inside this radius=1 circle.
-//		(within this sphere, all regions of equal volume are equally likely to
-//		contain the the point (xball,yball,zball)).
-	do {			// 0.0 <= Math.random() < 1.0 with uniform PDF.
-		xball = 2.0*Math.random() -1.0;			// choose an equally-likely 2D point
-		yball = 2.0*Math.random() -1.0;			// within the +/-1, +/-1 square.
-		zball = 2.0*Math.random() -1.0;
-		}
-	while(xball*xball + yball*yball + zball*zball >= 1.0);		// keep 1st point inside sphere.
-	ret = new Array(xball,yball,zball);
-	return ret;
-}
-
 
 //===================Mouse and Keyboard event-handling Callbacks================
 //==============================================================================
@@ -730,7 +718,7 @@ function myKeyPress(ev) {
 			break;
 		case 'R':  // HARD reset: position AND velocity.
 			myRunMode = 0;			// RESET!
-			PartSys_init(0);
+			PartSys_init(s0, 0);
 			break;
 		case 'r':		// 'SOFT' reset: boost velocity only.
 			for(var i=0; i<partCount; i++) {
@@ -838,6 +826,24 @@ function onMinusButton() {
 	console.log('Initial velocity: '+INIT_VEL);
 }
 
+function roundRand3D() {
+//==============================================================================
+// On each call, find a different 3D point (xball, yball, zball) chosen 
+// 'randomly' and 'uniformly' inside a sphere of radius 1.0 centered at origin.  
+// More formally: 
+//  	--xball*xball + yball*yball + zball*zball < 1.0, and 
+//		--uniform probability density function inside this radius=1 circle.
+//		(within this sphere, all regions of equal volume are equally likely to
+//		contain the the point (xball,yball,zball)).
+	do {			// 0.0 <= Math.random() < 1.0 with uniform PDF.
+		xball = 2.0*Math.random() -1.0;			// choose an equally-likely 2D point
+		yball = 2.0*Math.random() -1.0;			// within the +/-1, +/-1 square.
+		zball = 2.0*Math.random() -1.0;
+		}
+	while(xball*xball + yball*yball + zball*zball >= 1.0);		// keep 1st point inside sphere.
+	ret = new Array(xball,yball,zball);
+	return ret;
+}
 function normalize(v){
   var mag = Math.sqrt(v[0] * v[0] + v[1] * v[1] + v[2] * v[2])
   return [v[0]/ mag, v[1]/mag, v[2]/mag];
@@ -846,7 +852,22 @@ function crossProduct(x1, x2, x3, y1, y2, y3){
   return [x2*y3-x3*y2, x3*y1-x1*y3, x1*y2-x2*y1];
 }
 
+function initArrayBufferForLaterUse(gl, data, num, type) {
+  var buffer = gl.createBuffer();   // Create a buffer object
+  if (!buffer) {
+    console.log('Failed to create the buffer object');
+    return null;
+  }
+  // Write date into the buffer object
+  gl.bindBuffer(gl.ARRAY_BUFFER, buffer);
+  gl.bufferData(gl.ARRAY_BUFFER, data, gl.DYNAMIC_DRAW);
 
+  // Keep the information necessary to assign to the attribute variable later
+  buffer.num = num;
+  buffer.type = type;
+
+  return buffer;
+}
 
 function makeGroundGrid() {
 //==============================================================================
